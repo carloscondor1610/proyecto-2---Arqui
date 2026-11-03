@@ -1,0 +1,13 @@
+PROYECTO RISC-V PIPELINE — VIVADO
+
+1. Descomprime TODO este ZIP en una carpeta local, por ejemplo C:\Vivado\RISC_V_Pipeline_Listo_Vivado\
+2. En Vivado: File > Project > Open > selecciona RISC_V_Pipeline.xpr que esta en la carpeta raiz.
+3. En Sources confirma que top es Design Top y testbench es Simulation Top.
+4. Flow Navigator > Simulation > Run Behavioral Simulation.
+5. Observa Tcl Console para REGRESSION TEST PASSED o errores.
+
+Conservados los 16 archivos Verilog originales, testbench y riscvtest.dat.
+Las 18 rutas de fuentes del archivo XPR fueron verificadas.
+FPGA establecida en XPR: xc7a35tcpg236-1 (Basys 3).
+No incluye archivo .xdc: preparado principalmente para simulacion RTL.
+NOTA: no fue posible ejecutar Vivado/XSim en este entorno; las rutas se verificaron estaticamente.
