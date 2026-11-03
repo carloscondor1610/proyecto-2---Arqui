@@ -1,0 +1,11 @@
+
+# Archivos temporales de Vivado
+*.sim/
+*.cache/
+*.runs/
+*.hw/
+*.ip_user_files/
+*.jou
+*.log
+*.wdb
+*.exe
