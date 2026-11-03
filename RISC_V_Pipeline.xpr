@@ -4,7 +4,7 @@
 <!-- Copyright 1986-2022 Xilinx, Inc. All Rights Reserved.                   -->
 <!-- Copyright 2022-2026 Advanced Micro Devices, Inc. All Rights Reserved.   -->
 
-<Project Product="Vivado" Version="7" Minor="72" Path="D:/CUARTO CICLO 2026-II/Arquitectura de Computadoras/VIVADO/P0/RISC_V_Pipeline_Listo_Vivado/RISC_V_Pipeline.xpr">
+<Project Product="Vivado" Version="7" Minor="72" Path="C:/Users/luisf/Downloads/RISC_V_Pipeline_Vivado/RISC_V_Pipeline_Vivado/RISC_V_Pipeline.xpr">
   <DefaultLaunch Dir="$PRUNDIR"/>
   <Configuration>
     <Option Name="Id" Val="584d32c078574c55b2c18fc8a2930e17"/>
@@ -121,6 +121,20 @@
         </FileInfo>
       </File>
       <File Path="$PPRDIR/src/flopr.v">
+        <FileInfo>
+          <Attr Name="UsedIn" Val="synthesis"/>
+          <Attr Name="UsedIn" Val="implementation"/>
+          <Attr Name="UsedIn" Val="simulation"/>
+        </FileInfo>
+      </File>
+      <File Path="$PSRCDIR/sources_1/new/forwarding_unit.v">
+        <FileInfo>
+          <Attr Name="UsedIn" Val="synthesis"/>
+          <Attr Name="UsedIn" Val="implementation"/>
+          <Attr Name="UsedIn" Val="simulation"/>
+        </FileInfo>
+      </File>
+      <File Path="$PSRCDIR/sources_1/new/hazard_unit.v">
         <FileInfo>
           <Attr Name="UsedIn" Val="synthesis"/>
           <Attr Name="UsedIn" Val="implementation"/>
