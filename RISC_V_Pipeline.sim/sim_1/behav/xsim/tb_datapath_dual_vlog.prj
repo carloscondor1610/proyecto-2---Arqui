@@ -1,0 +1,22 @@
+# compile verilog/system verilog design source files
+verilog xil_defaultlib  --include "../../../../../../../../../VIVADO/2026.1/Vivado/data/rsb/busdef" \
+"../../../../src/alu.v" \
+"../../../../src/aludec.v" \
+"../../../../src/controller.v" \
+"../../../../RISC_V_Pipeline.srcs/sources_1/new/datapath_dual.v" \
+"../../../../RISC_V_Pipeline.srcs/sources_1/new/dual_decode.v" \
+"../../../../RISC_V_Pipeline.srcs/sources_1/new/dual_fetch.v" \
+"../../../../src/extend.v" \
+"../../../../RISC_V_Pipeline.srcs/sources_1/new/ifid_dual.v" \
+"../../../../RISC_V_Pipeline.srcs/sources_1/new/imem_dual.v" \
+"../../../../src/maindec.v" \
+"../../../../RISC_V_Pipeline.srcs/sources_1/new/regfile_dual.v" \
+
+sv xil_defaultlib  --include "../../../../../../../../../VIVADO/2026.1/Vivado/data/rsb/busdef" \
+"../../../../RISC_V_Pipeline.srcs/sim_1/new/tb_datapath_dual.v" \
+
+# compile glbl module
+verilog xil_defaultlib "glbl.v"
+
+# Do not sort compile order
+nosort
