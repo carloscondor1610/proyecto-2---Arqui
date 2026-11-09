@@ -84,6 +84,10 @@ module datapath_dual (
 
     wire [4:0] rs1_0, rs2_0, rd_0;
     wire [4:0] rs1_1, rs2_1, rd_1;
+    
+        // Tipo de operacion de memoria
+    wire [2:0] funct3_0D = instr0D[14:12];
+    wire [2:0] funct3_1D = instr1D[14:12];
 
     wire [31:0] immext0, immext1;
 
@@ -170,7 +174,7 @@ module datapath_dual (
     // 4.1 REGISTRO ID/EX DUAL
     // ======================================
 
-    localparam IDEX_WIDTH = 154;
+    localparam IDEX_WIDTH = 157;
 
     wire valid0E, valid1E;
 
@@ -195,7 +199,8 @@ module datapath_dual (
         RegWrite0,
         Jump0,
         Branch0,
-        ALUControl0
+        ALUControl0,
+        funct3_0D
     };
 
     // Empaquetar datos y control de la via 1
@@ -213,7 +218,8 @@ module datapath_dual (
         RegWrite1,
         Jump1,
         Branch1,
-        ALUControl1
+        ALUControl1,
+        funct3_1D
     };
 
     // Registro de pipeline para ambas vias
@@ -246,6 +252,8 @@ module datapath_dual (
     // DESEMPAQUETADO ID/EX - VIA 0
     // ======================================
 
+    wire[2:0] funct3_0E;
+
     wire [31:0] pc0E;
     wire [31:0] RD1_0E, RD2_0E;
     wire [31:0] immext0E;
@@ -271,12 +279,14 @@ module datapath_dual (
         RegWrite0E,
         Jump0E,
         Branch0E,
-        ALUControl0E
+        ALUControl0E,
+        funct3_0E
     } = data0E;
 
     // ======================================
     // DESEMPAQUETADO ID/EX - VIA 1
     // ======================================
+    wire [2:0] funct3_1E;
 
     wire [31:0] pc1E;
     wire [31:0] RD1_1E, RD2_1E;
@@ -303,7 +313,8 @@ module datapath_dual (
         RegWrite1E,
         Jump1E,
         Branch1E,
-        ALUControl1E
+        ALUControl1E,
+        funct3_1E
     } = data1E;
 
     // ======================================
@@ -345,7 +356,7 @@ module datapath_dual (
     // 6. REGISTRO EX/MEM DUAL
     // ======================================
 
-    localparam EXMEM_WIDTH = 105;
+    localparam EXMEM_WIDTH = 108;
 
     // Datos de entrada desde Execute
     wire [EXMEM_WIDTH-1:0] data0E_exmem;
@@ -365,7 +376,8 @@ module datapath_dual (
         rd_0E,
         ResultSrc0E,
         MemWrite0E,
-        RegWrite0E
+        RegWrite0E,
+        funct3_0E
     };
 
     // Empaquetado de la via 1
@@ -376,7 +388,8 @@ module datapath_dual (
         rd_1E,
         ResultSrc1E,
         MemWrite1E,
-        RegWrite1E
+        RegWrite1E,
+        funct3_1E
     };
 
     // Registro EX/MEM para ambas vias
@@ -405,7 +418,10 @@ module datapath_dual (
         // ======================================
     // 7. DESEMPAQUETADO EX/MEM DUAL
     // ======================================
-
+    wire [2:0] funct3_0M;
+    wire [2:0] funct3_1M;
+    
+    
     // Via 0
     wire [31:0] pc0M;
     wire [31:0] ALUResult0M;
@@ -421,7 +437,8 @@ module datapath_dual (
         rd_0M,
         ResultSrc0M,
         MemWrite0M,
-        RegWrite0M
+        RegWrite0M,
+        funct3_0M
     } = data0M;
 
     // Via 1
@@ -439,7 +456,8 @@ module datapath_dual (
         rd_1M,
         ResultSrc1M,
         MemWrite1M,
-        RegWrite1M
+        RegWrite1M,
+        funct3_1M
     } = data1M;
     
     
@@ -474,14 +492,16 @@ module datapath_dual (
         (select_mem1 && MemWrite1M);
 
     wire [31:0] ReadDataM;
+    wire [2:0] MemFunct3 = select_mem1 ? funct3_1M : funct3_0M;
 
     // Memoria de datos de un solo puerto
     dmem_dual dmem_unit (
-        .clk(clk),
-        .memwrite(MemWrite),
-        .address(MemAddress),
-        .writedata(MemWriteData),
-        .readdata(ReadDataM)
+    .clk(clk),
+    .memwrite(MemWrite),
+    .address(MemAddress),
+    .writedata(MemWriteData),
+    .funct3(MemFunct3),
+    .readdata(ReadDataM)
     );
 
     // Resultado de lectura por via
