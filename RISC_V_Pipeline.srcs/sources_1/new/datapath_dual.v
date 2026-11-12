@@ -1,23 +1,23 @@
 
 `timescale 1ns / 1ps
 
-module datapath_dual (
+module datapath_dual #(
+    // El modo manual queda disponible para los bancos de prueba anteriores.
+    parameter AUTO_ISSUE = 1
+) (
     input wire clk,
     input wire reset,
 
-    // Control preliminar del Fetch
     input wire [1:0] advance,
     input wire redirect,
     input wire [31:0] redirect_pc,
     input wire stallD,
     input wire flushD,
 
-    // Puerto de escritura para pruebas del Register File
     input wire we_test,
     input wire [4:0] wa_test,
     input wire [31:0] wd_test,
 
-    // Salidas observables
     output wire [31:0] pcF,
     output wire [31:0] pc1F,
     output wire [31:0] instr0D,
@@ -28,39 +28,60 @@ module datapath_dual (
     output wire [31:0] result1
 );
 
-    // ======================================
-    // 1. DUAL FETCH
-    // ======================================
+    wire StallF_H, StallD_H, FlushD_H, FlushE_H;
+    wire UsesRs1E1, UsesRs2E1;
+    wire valid0M, valid1M;
+    wire [4:0] rd_0M;
+    wire [1:0] ResultSrc0M;
+    wire MemWrite0M, RegWrite0M;
+    wire [4:0] rd_1M;
+    wire [1:0] ResultSrc1M;
+    wire MemWrite1M, RegWrite1M;
+    wire valid0W, valid1W;
+    wire [4:0] rd_0W;
+    wire RegWrite0W;
+    wire [4:0] rd_1W;
+    wire RegWrite1W;
+    wire [31:0] Result0W;
+    wire [31:0] Result1W;
+    wire RegWriteEnable0W;
+    wire RegWriteEnable1W;
+    wire UsesRs1E0, UsesRs2E0;
 
     wire [31:0] instr0F, instr1F;
+    wire branchRedirect;
+    wire [31:0] branchTargetE;
+    wire Issue0, Issue1;
+    wire HoldDecode, PartialIssue;
+    wire [1:0] IssueCount, FetchCount;
+    wire FrontFlush = flushD | FlushD_H | branchRedirect;
+    wire [1:0] fetch_advance = AUTO_ISSUE ? FetchCount :
+                               (StallF_H ? 2'd0 : advance);
 
     dual_fetch fetch_unit (
         .clk(clk),
         .reset(reset),
-        .advance(advance),
-        .redirect(redirect),
-        .redirect_pc(redirect_pc),
+        .advance(fetch_advance),
+        .redirect(branchRedirect),
+        .redirect_pc(redirect ? redirect_pc : branchTargetE),
         .pc(pcF),
         .pc1(pc1F),
         .instr0(instr0F),
         .instr1(instr1F)
     );
 
-    // ======================================
-    // 2. IF/ID DUAL
-    // ======================================
-
     wire [31:0] pc0D, pc1D;
 
-    // La captura se habilita segun advance.
-    wire valid0F = (advance != 2'd0);
-    wire valid1F = (advance == 2'd2);
+    wire [1:0] fetch_valid_count = AUTO_ISSUE ? FetchCount : advance;
+    wire valid0F = (fetch_valid_count != 2'd0);
+    wire valid1F = (fetch_valid_count == 2'd2);
 
     ifid_dual ifid_unit (
         .clk(clk),
         .reset(reset),
-        .stall(stallD | (advance == 2'd0)),
-        .flush(flushD | redirect),
+        .stall(AUTO_ISSUE ? HoldDecode : (stallD | StallD_H | (advance == 2'd0))),
+        .flush(FrontFlush),
+        .shift_pending(AUTO_ISSUE && PartialIssue),
 
         .instr0F(instr0F),
         .instr1F(instr1F),
@@ -78,18 +99,37 @@ module datapath_dual (
         .valid1D(valid1D)
     );
 
-    // ======================================
-    // 3. DUAL DECODE
-    // ======================================
-
     wire [4:0] rs1_0, rs2_0, rd_0;
     wire [4:0] rs1_1, rs2_1, rd_1;
-    
-        // Tipo de operacion de memoria
+
     wire [2:0] funct3_0D = instr0D[14:12];
     wire [2:0] funct3_1D = instr1D[14:12];
 
     wire [31:0] immext0, immext1;
+    wire UsesRs1D0 = (instr0D[6:0] == 7'b0110011) || (instr0D[6:0] == 7'b0010011) ||
+                      (instr0D[6:0] == 7'b0000011) || (instr0D[6:0] == 7'b0100011) ||
+                      (instr0D[6:0] == 7'b1100011) || (instr0D[6:0] == 7'b1100111);
+    wire UsesRs2D0 = (instr0D[6:0] == 7'b0110011) || (instr0D[6:0] == 7'b0100011) ||
+                      (instr0D[6:0] == 7'b1100011);
+    wire UsesRs1D1 = (instr1D[6:0] == 7'b0110011) || (instr1D[6:0] == 7'b0010011) ||
+                      (instr1D[6:0] == 7'b0000011) || (instr1D[6:0] == 7'b0100011) ||
+                      (instr1D[6:0] == 7'b1100011) || (instr1D[6:0] == 7'b1100111);
+    wire UsesRs2D1 = (instr1D[6:0] == 7'b0110011) || (instr1D[6:0] == 7'b0100011) ||
+                      (instr1D[6:0] == 7'b1100011);
+    wire RAWPair, LoadUseHazard0, LoadUseHazard1;
+    wire BlockIssue0, BlockIssue1;
+    wire StallBoth, IssueOnly0;
+    wire MemCandidate0 = valid0D && (MemWrite0 || (ResultSrc0 == 2'b01));
+    wire MemCandidate1 = valid1D && (MemWrite1 || (ResultSrc1 == 2'b01));
+    wire MemConflictD = MemCandidate0 && MemCandidate1;
+    wire BranchConflictD = valid0D && valid1D &&
+                           (Branch0 || Jump0) && (Branch1 || Jump1);
+    wire branchRedirectE;
+    wire kill_lane1E;
+    wire branch_conflictE;
+    assign branchRedirect = redirect | branchRedirectE;
+    wire [2:0] ForwardAE, ForwardBE, ForwardAE1, ForwardBE1;
+    wire ForwardStall0, ForwardStall1;
 
     wire [1:0] ResultSrc0, ResultSrc1;
     wire MemWrite0, MemWrite1;
@@ -131,50 +171,33 @@ module datapath_dual (
         .ALUControl1(ALUControl1)
     );
 
-    // ======================================
-    // 4. REGISTER FILE PRELIMINAR
-    // ======================================
-
     wire [31:0] RD1_0, RD2_0;
     wire [31:0] RD1_1, RD2_1;
-
-        // ======================================
-    // 4. REGISTER FILE DUAL
-    // ======================================
 
     regfile_dual rf_unit (
         .clk(clk),
 
-        // Escritura de la via 0 desde WB
         .we0(RegWriteEnable0W),
         .wa0(rd_0W),
         .wd0(Result0W),
 
-        // Escritura de la via 1 desde WB
         .we1(RegWriteEnable1W),
         .wa1(rd_1W),
         .wd1(Result1W),
 
-        // Lectura de la via 0
         .a1_0(rs1_0),
         .a2_0(rs2_0),
 
-        // Lectura de la via 1
         .a1_1(rs1_1),
         .a2_1(rs2_1),
 
-        // Cuatro resultados de lectura
         .rd1_0(RD1_0),
         .rd2_0(RD2_0),
         .rd1_1(RD1_1),
         .rd2_1(RD2_1)
     );
-    
-        // ======================================
-    // 4.1 REGISTRO ID/EX DUAL
-    // ======================================
 
-    localparam IDEX_WIDTH = 157;
+    localparam IDEX_WIDTH = 159;
 
     wire valid0E, valid1E;
 
@@ -184,7 +207,6 @@ module datapath_dual (
     wire [IDEX_WIDTH-1:0] data0D;
     wire [IDEX_WIDTH-1:0] data1D;
 
-    // Empaquetar datos y control de la via 0
     assign data0D = {
         pc0D,
         RD1_0,
@@ -200,10 +222,11 @@ module datapath_dual (
         Jump0,
         Branch0,
         ALUControl0,
-        funct3_0D
+        funct3_0D,
+        UsesRs1D0,
+        UsesRs2D0
     };
 
-    // Empaquetar datos y control de la via 1
     assign data1D = {
         pc1D,
         RD1_1,
@@ -219,17 +242,22 @@ module datapath_dual (
         Jump1,
         Branch1,
         ALUControl1,
-        funct3_1D
+        funct3_1D,
+        UsesRs1D1,
+        UsesRs2D1
     };
 
-    // Registro de pipeline para ambas vias
     idex_dual #(
         .WIDTH(IDEX_WIDTH)
     ) idex_unit (
         .clk(clk),
         .reset(reset),
         .enable(1'b1),
-        .flush(1'b0),
+        .flush(FlushE_H | branchRedirect),
+        .issue0D(AUTO_ISSUE ? Issue0 : 1'b1),
+        .issue1D(AUTO_ISSUE ? Issue1 : 1'b1),
+        .flush0(1'b0),
+        .flush1(1'b0),
 
         .valid0D(valid0D),
         .valid1D(valid1D),
@@ -243,14 +271,6 @@ module datapath_dual (
         .data0E(data0E),
         .data1E(data1E)
     );
-    
-    // ======================================
-    // 5. OPERANDOS DE LAS DOS ALU
-    // ======================================
-    
-        // ======================================
-    // DESEMPAQUETADO ID/EX - VIA 0
-    // ======================================
 
     wire[2:0] funct3_0E;
 
@@ -280,12 +300,11 @@ module datapath_dual (
         Jump0E,
         Branch0E,
         ALUControl0E,
-        funct3_0E
+        funct3_0E,
+        UsesRs1E0,
+        UsesRs2E0
     } = data0E;
 
-    // ======================================
-    // DESEMPAQUETADO ID/EX - VIA 1
-    // ======================================
     wire [2:0] funct3_1E;
 
     wire [31:0] pc1E;
@@ -314,26 +333,98 @@ module datapath_dual (
         Jump1E,
         Branch1E,
         ALUControl1E,
-        funct3_1E
+        funct3_1E,
+        UsesRs1E1,
+        UsesRs2E1
     } = data1E;
 
-    // ======================================
-    // OPERANDOS ALU - ETAPA EXECUTE
-    // ======================================
+    hazard_unit hazards (
+        .Rs1D(rs1_0), .Rs2D(rs2_0), .RdD0(rd_0),
+        .UsesRs1D(UsesRs1D0), .UsesRs2D(UsesRs2D0),
+        .RegWriteD0(RegWrite0), .ValidD0(valid0D),
+        .Rs1D1(rs1_1), .Rs2D1(rs2_1),
+        .UsesRs1D1(UsesRs1D1), .UsesRs2D1(UsesRs2D1), .ValidD1(valid1D),
+        .RdE(rd_0E), .RegWriteE(RegWrite0E),
+        .ResultSrcE(ResultSrc0E), .ValidE0(valid0E),
+        .RdE1(rd_1E), .RegWriteE1(RegWrite1E),
+        .ResultSrcE1(ResultSrc1E), .ValidE1(valid1E),
+        .PCSrcE(branchRedirect),
+        .StallF(StallF_H), .StallD(StallD_H),
+        .FlushD(FlushD_H), .FlushE(FlushE_H),
+        .RAWPair(RAWPair),
+        .LoadUseHazard0(LoadUseHazard0),
+        .LoadUseHazard1(LoadUseHazard1),
+        .BlockIssue0(BlockIssue0),
+        .BlockIssue1(BlockIssue1),
+        .StallBoth(StallBoth),
+        .IssueOnly0(IssueOnly0)
+    );
 
-    wire [31:0] SrcA0 = RD1_0E;
+    issue_unit issue_controller (
+        .ValidD0(valid0D),
+        .ValidD1(valid1D),
+        .BlockIssue0(BlockIssue0),
+        .BlockIssue1(BlockIssue1),
+        .MemConflict(MemConflictD),
+        .BranchConflict(BranchConflictD),
+        .Flush(FrontFlush),
+        .HoldRequest(stallD),
+        .Issue0(Issue0),
+        .Issue1(Issue1),
+        .HoldDecode(HoldDecode),
+        .PartialIssue(PartialIssue),
+        .IssueCount(IssueCount),
+        .FetchCount(FetchCount)
+    );
 
-    wire [31:0] SrcB0 =
-        ALUSrc0E ? immext0E : RD2_0E;
+    forwarding_unit forwarding (
+        .Rs1E(rs1_0E), .Rs2E(rs2_0E),
+        .Rs1E1(rs1_1E), .Rs2E1(rs2_1E),
+        .UsesRs1E0(UsesRs1E0), .UsesRs2E0(UsesRs2E0),
+        .UsesRs1E1(UsesRs1E1), .UsesRs2E1(UsesRs2E1),
+        .RdM(rd_0M), .RdM1(rd_1M),
+        .RdW(rd_0W), .RdW1(rd_1W),
+        .RegWriteM(RegWrite0M), .RegWriteM1(RegWrite1M),
+        .RegWriteW(RegWrite0W), .RegWriteW1(RegWrite1W),
+        .ValidM0(valid0M), .ValidM1(valid1M),
+        .ValidW0(valid0W), .ValidW1(valid1W),
+        .ResultSrcM(ResultSrc0M), .ResultSrcM1(ResultSrc1M),
+        .ForwardAE(ForwardAE), .ForwardBE(ForwardBE),
+        .ForwardAE1(ForwardAE1), .ForwardBE1(ForwardBE1),
+        .ForwardStall0(ForwardStall0),
+        .ForwardStall1(ForwardStall1)
+    );
 
-    wire [31:0] SrcA1 = RD1_1E;
+    function [31:0] bypass_data;
+        input [2:0] selection;
+        input [31:0] original_value;
+        input [31:0] m0, m1, w0, w1;
+        begin
+            case (selection)
+                3'd1: bypass_data = m0;
+                3'd2: bypass_data = m1;
+                3'd3: bypass_data = w0;
+                3'd4: bypass_data = w1;
+                default: bypass_data = original_value;
+            endcase
+        end
+    endfunction
 
-    wire [31:0] SrcB1 =
-        ALUSrc1E ? immext1E : RD2_1E;
-        
+    wire [31:0] ALUForward0M = (ResultSrc0M == 2'b10) ? pc0M + 32'd4 : ALUResult0M;
+    wire [31:0] ALUForward1M = (ResultSrc1M == 2'b10) ? pc1M + 32'd4 : ALUResult1M;
+    wire [31:0] SrcA0 = bypass_data(ForwardAE, RD1_0E,
+                                    ALUForward0M, ALUForward1M, Result0W, Result1W);
+    wire [31:0] SrcA1 = bypass_data(ForwardAE1, RD1_1E,
+                                    ALUForward0M, ALUForward1M, Result0W, Result1W);
+    wire [31:0] RegB0 = bypass_data(ForwardBE, RD2_0E,
+                                    ALUForward0M, ALUForward1M, Result0W, Result1W);
+    wire [31:0] RegB1 = bypass_data(ForwardBE1, RD2_1E,
+                                    ALUForward0M, ALUForward1M, Result0W, Result1W);
+    wire [31:0] SrcB0 = ALUSrc0E ? immext0E : RegB0;
+    wire [31:0] SrcB1 = ALUSrc1E ? immext1E : RegB1;
+
     wire Zero0, Zero1;
 
-        // ALU de la via 0
     alu alu0 (
         .a(SrcA0),
         .b(SrcB0),
@@ -342,7 +433,6 @@ module datapath_dual (
         .zero(Zero0)
     );
 
-    // ALU de la via 1
     alu alu1 (
         .a(SrcA1),
         .b(SrcB1),
@@ -350,29 +440,34 @@ module datapath_dual (
         .result(result1),
         .zero(Zero1)
     );
-    
-    
-        // ======================================
-    // 6. REGISTRO EX/MEM DUAL
-    // ======================================
+
+    branch_control_dual branch_controller (
+        .valid0E(valid0E), .valid1E(valid1E),
+        .Branch0E(Branch0E), .Branch1E(Branch1E),
+        .Jump0E(Jump0E), .Jump1E(Jump1E),
+        .UsesRs1E0(UsesRs1E0), .UsesRs1E1(UsesRs1E1),
+        .funct3_0E(funct3_0E), .funct3_1E(funct3_1E),
+        .SrcA0(SrcA0), .SrcA1(SrcA1),
+        .RegB0(RegB0), .RegB1(RegB1),
+        .pc0E(pc0E), .pc1E(pc1E),
+        .immext0E(immext0E), .immext1E(immext1E),
+        .redirectE(branchRedirectE), .redirect_pcE(branchTargetE),
+        .kill_lane1E(kill_lane1E),
+        .branch_conflictE(branch_conflictE)
+    );
 
     localparam EXMEM_WIDTH = 108;
 
-    // Datos de entrada desde Execute
     wire [EXMEM_WIDTH-1:0] data0E_exmem;
     wire [EXMEM_WIDTH-1:0] data1E_exmem;
 
-    // Datos de salida hacia Memory
     wire [EXMEM_WIDTH-1:0] data0M;
     wire [EXMEM_WIDTH-1:0] data1M;
 
-    wire valid0M, valid1M;
-
-    // Empaquetado de la via 0
     assign data0E_exmem = {
         pc0E,
         result0,
-        RD2_0E,
+        RegB0,
         rd_0E,
         ResultSrc0E,
         MemWrite0E,
@@ -380,11 +475,10 @@ module datapath_dual (
         funct3_0E
     };
 
-    // Empaquetado de la via 1
     assign data1E_exmem = {
         pc1E,
         result1,
-        RD2_1E,
+        RegB1,
         rd_1E,
         ResultSrc1E,
         MemWrite1E,
@@ -392,7 +486,6 @@ module datapath_dual (
         funct3_1E
     };
 
-    // Registro EX/MEM para ambas vias
     exmem_dual #(
         .WIDTH(EXMEM_WIDTH)
     ) exmem_unit (
@@ -401,7 +494,7 @@ module datapath_dual (
         .enable(1'b1),
 
         .flush0(1'b0),
-        .flush1(1'b0),
+        .flush1(kill_lane1E),
 
         .valid0E(valid0E),
         .valid1E(valid1E),
@@ -415,20 +508,13 @@ module datapath_dual (
         .data0M(data0M),
         .data1M(data1M)
     );
-        // ======================================
-    // 7. DESEMPAQUETADO EX/MEM DUAL
-    // ======================================
+
     wire [2:0] funct3_0M;
     wire [2:0] funct3_1M;
-    
-    
-    // Via 0
+
     wire [31:0] pc0M;
     wire [31:0] ALUResult0M;
     wire [31:0] WriteData0M;
-    wire [4:0] rd_0M;
-    wire [1:0] ResultSrc0M;
-    wire MemWrite0M, RegWrite0M;
 
     assign {
         pc0M,
@@ -441,13 +527,9 @@ module datapath_dual (
         funct3_0M
     } = data0M;
 
-    // Via 1
     wire [31:0] pc1M;
     wire [31:0] ALUResult1M;
     wire [31:0] WriteData1M;
-    wire [4:0] rd_1M;
-    wire [1:0] ResultSrc1M;
-    wire MemWrite1M, RegWrite1M;
 
     assign {
         pc1M,
@@ -459,13 +541,7 @@ module datapath_dual (
         RegWrite1M,
         funct3_1M
     } = data1M;
-    
-    
-        // ======================================
-    // 8. MEMORIA DE DATOS COMPARTIDA
-    // ======================================
 
-    // ResultSrc = 01 indica lectura de memoria.
     wire MemRead0M = valid0M && (ResultSrc0M == 2'b01);
     wire MemRead1M = valid1M && (ResultSrc1M == 2'b01);
 
@@ -475,10 +551,8 @@ module datapath_dual (
     wire MemAccess1M = valid1M &&
                        (MemWrite1M || MemRead1M);
 
-    // Detectar dos accesos simultaneos
     wire mem_conflict = MemAccess0M && MemAccess1M;
 
-    // Seleccion del puerto compartido
     wire select_mem1 = !MemAccess0M && MemAccess1M;
 
     wire [31:0] MemAddress =
@@ -494,42 +568,30 @@ module datapath_dual (
     wire [31:0] ReadDataM;
     wire [2:0] MemFunct3 = select_mem1 ? funct3_1M : funct3_0M;
 
-    // Memoria de datos de un solo puerto
     dmem_dual dmem_unit (
-    .clk(clk),
-    .memwrite(MemWrite),
-    .address(MemAddress),
-    .writedata(MemWriteData),
-    .funct3(MemFunct3),
-    .readdata(ReadDataM)
+        .clk(clk),
+        .memwrite(MemWrite),
+        .address(MemAddress),
+        .writedata(MemWriteData),
+        .funct3(MemFunct3),
+        .readdata(ReadDataM)
     );
 
-    // Resultado de lectura por via
     wire [31:0] ReadData0M =
         MemRead0M ? ReadDataM : 32'd0;
 
     wire [31:0] ReadData1M =
         (MemRead1M && select_mem1) ?
         ReadDataM : 32'd0;
-        
-        
-        // ======================================
-    // 9. REGISTRO MEM/WB DUAL
-    // ======================================
 
     localparam MEMWB_WIDTH = 104;
 
-    // Datos de entrada desde Memory
     wire [MEMWB_WIDTH-1:0] data0M_memwb;
     wire [MEMWB_WIDTH-1:0] data1M_memwb;
 
-    // Datos de salida hacia Writeback
     wire [MEMWB_WIDTH-1:0] data0W;
     wire [MEMWB_WIDTH-1:0] data1W;
 
-    wire valid0W, valid1W;
-
-    // Empaquetado de la via 0
     assign data0M_memwb = {
         pc0M,
         ALUResult0M,
@@ -539,7 +601,6 @@ module datapath_dual (
         RegWrite0M
     };
 
-    // Empaquetado de la via 1
     assign data1M_memwb = {
         pc1M,
         ALUResult1M,
@@ -549,7 +610,6 @@ module datapath_dual (
         RegWrite1M
     };
 
-    // Registro MEM/WB para ambas vias
     memwb_dual #(
         .WIDTH(MEMWB_WIDTH)
     ) memwb_unit (
@@ -569,18 +629,11 @@ module datapath_dual (
         .data0W(data0W),
         .data1W(data1W)
     );
-    
-        // ======================================
-    // 10. DESEMPAQUETADO MEM/WB DUAL
-    // ======================================
 
-    // Via 0
     wire [31:0] pc0W;
     wire [31:0] ALUResult0W;
     wire [31:0] ReadData0W;
-    wire [4:0] rd_0W;
     wire [1:0] ResultSrc0W;
-    wire RegWrite0W;
 
     assign {
         pc0W,
@@ -591,13 +644,10 @@ module datapath_dual (
         RegWrite0W
     } = data0W;
 
-    // Via 1
     wire [31:0] pc1W;
     wire [31:0] ALUResult1W;
     wire [31:0] ReadData1W;
-    wire [4:0] rd_1W;
     wire [1:0] ResultSrc1W;
-    wire RegWrite1W;
 
     assign {
         pc1W,
@@ -607,18 +657,6 @@ module datapath_dual (
         ResultSrc1W,
         RegWrite1W
     } = data1W;
-
-    // ======================================
-    // 11. RESULTADOS DE WRITEBACK
-    // ======================================
-
-    // Seleccion del resultado final de cada via
-    // 00: ALU
-    // 01: Memoria
-    // 10: PC + 4 (JAL/JALR)
-
-    wire [31:0] Result0W;
-    wire [31:0] Result1W;
 
     assign Result0W =
         (ResultSrc0W == 2'b00) ? ALUResult0W :
@@ -631,10 +669,6 @@ module datapath_dual (
         (ResultSrc1W == 2'b01) ? ReadData1W :
         (ResultSrc1W == 2'b10) ? (pc1W + 32'd4) :
         32'd0;
-
-    // Habilitacion de escritura por via
-    wire RegWriteEnable0W;
-    wire RegWriteEnable1W;
 
     assign RegWriteEnable0W = valid0W && RegWrite0W;
     assign RegWriteEnable1W = valid1W && RegWrite1W;

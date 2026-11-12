@@ -46,25 +46,31 @@ module regfile_dual (
             rf[wa1] <= wd1;
     end
 
-    // Lectura con bypass de Writeback
-    function [31:0] read_rf;
+    // Cada lectura depende del registro almacenado y de ambos puertos WB.
+    function automatic [31:0] read_rf;
         input [4:0] addr;
+        input [31:0] stored_value;
+        input write0;
+        input [4:0] write_addr0;
+        input [31:0] write_data0;
+        input write1;
+        input [4:0] write_addr1;
+        input [31:0] write_data1;
         begin
             if (addr == 5'd0)
                 read_rf = 32'd0;
-            else if (we1 && wa1 == addr)
-                read_rf = wd1;
-            else if (we0 && wa0 == addr)
-                read_rf = wd0;
+            else if (write1 && write_addr1 == addr)
+                read_rf = write_data1;
+            else if (write0 && write_addr0 == addr)
+                read_rf = write_data0;
             else
-                read_rf = rf[addr];
+                read_rf = stored_value;
         end
     endfunction
 
-    assign rd1_0 = read_rf(a1_0);
-    assign rd2_0 = read_rf(a2_0);
-
-    assign rd1_1 = read_rf(a1_1);
-    assign rd2_1 = read_rf(a2_1);
+    assign rd1_0 = read_rf(a1_0, rf[a1_0], we0, wa0, wd0, we1, wa1, wd1);
+    assign rd2_0 = read_rf(a2_0, rf[a2_0], we0, wa0, wd0, we1, wa1, wd1);
+    assign rd1_1 = read_rf(a1_1, rf[a1_1], we0, wa0, wd0, we1, wa1, wd1);
+    assign rd2_1 = read_rf(a2_1, rf[a2_1], we0, wa0, wd0, we1, wa1, wd1);
 
 endmodule
