@@ -27,7 +27,7 @@ module tb_datapath_dual;
     // INSTANCIA DEL DATAPATH DUAL
     // ========================================
 
-    datapath_dual dut (
+    datapath_dual #(.AUTO_ISSUE(0)) dut (
         .clk(clk),
         .reset(reset),
         .advance(advance),

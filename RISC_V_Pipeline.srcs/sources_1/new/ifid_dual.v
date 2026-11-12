@@ -28,6 +28,7 @@ module ifid_dual (
     // Control del registro
     input wire stall,
     input wire flush,
+    input wire shift_pending,
 
     // Instrucciones desde Dual Fetch
     input wire [31:0] instr0F,
@@ -77,7 +78,18 @@ module ifid_dual (
             // Conservar los valores actuales
         end
 
-        // Capturar las dos instrucciones
+        // Solo salio la antigua. La pendiente conserva su instruccion y PC.
+        else if (shift_pending) begin
+            instr0D <= instr1D;
+            pc0D <= pc1D;
+            valid0D <= valid1D;
+
+            instr1D <= instr0F;
+            pc1D <= pc0F;
+            valid1D <= valid0F;
+        end
+
+        // Llenar la ventana desde Fetch.
         else begin
             instr0D <= instr0F;
             instr1D <= instr1F;
