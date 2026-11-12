@@ -1,0 +1,13 @@
+Salida de tb_issue_integrado en Verilator
+
+PASS: RAW, reagrupamiento, emision doble y forwarding
+PASS: load-use de la mas antigua bloquea ambas vias
+PASS: memoria en ambas vias, conflicto y load-use de la joven
+PASS: saltos en ambas posiciones, flush y conflicto
+PASS: JAL, registro de enlace y prioridad de doble writeback
+PASS: 32 instrucciones retiradas en orden, dos stores y estado final
+ISSUE INTEGRADO TEST PASSED
+- RISC_V_Pipeline.srcs/sim_1/new/tb_issue_integrado.sv:221: Verilog $finish
+- S i m u l a t i o n   R e p o r t: Verilator 5.49
+- Verilator: $finish at 326ns; walltime 0.000 s; speed 763.352 us/s
+- Verilator: cpu 0.000 s on 1 threads; allocated 6 MB
